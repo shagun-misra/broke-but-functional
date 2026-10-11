@@ -27,6 +27,8 @@ import {
   assessRiskLevel 
 } from "../lib/simulation";
 import { SurvivalBadges } from "../components/SurvivalBadges";
+import { CategoryBreakdown } from "../components/CategoryBreakdown";
+import { EndSimulationModal } from "../components/EndSimulationModal";
 
 const BurnDownChart = dynamic(
   () => import("../components/BurnDownChart").then((mod) => mod.BurnDownChart),
@@ -39,6 +41,7 @@ export default function BrokeButFunctional() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(DEFAULT_SUBSCRIPTIONS);
   const [notification, setNotification] = useState<string | null>(null);
   const [crisisModeActive, setCrisisModeActive] = useState<boolean>(false);
+  const [isEndModalOpen, setIsEndModalOpen] = useState<boolean>(false);
 
   const [transactions, setTransactions] = useState<Transaction[]>([
     { id: "tx-1", day: 1, title: "PG Accommodation Share", amount: -3500, category: "Essential" },
@@ -106,11 +109,11 @@ export default function BrokeButFunctional() {
     if (!crisisModeActive) {
       setSubscriptions(prev => prev.map(s => ({ ...s, active: false })));
       setCrisisModeActive(true);
-      notify("CRISIS PROTOCOL ENGAGED: All recurring subscriptions paused to preserve runway.");
+      notify("CRISIS PROTOCOL ENGAGED: Subscriptions paused.");
     } else {
       setSubscriptions(DEFAULT_SUBSCRIPTIONS);
       setCrisisModeActive(false);
-      notify("CRISIS PROTOCOL DISENGAGED: Subscriptions restored to standard baseline.");
+      notify("CRISIS PROTOCOL DISENGAGED: Subscriptions restored.");
     }
   };
 
@@ -131,11 +134,14 @@ export default function BrokeButFunctional() {
     a.href = url;
     a.download = `financial-simulation-day-${currentDay}.json`;
     a.click();
-    notify("Simulation ledger successfully exported as JSON.");
+    notify("Simulation ledger exported as JSON.");
   };
 
   const handleAdvanceDay = () => {
-    if (currentDay >= TOTAL_DAYS) return;
+    if (currentDay >= TOTAL_DAYS || currentBalance <= 0) {
+      setIsEndModalOpen(true);
+      return;
+    }
     const next = currentDay + 1;
     setCurrentDay(next);
 
@@ -152,6 +158,10 @@ export default function BrokeButFunctional() {
         ...prev
       ]);
       notify(`Surprise Event on Day ${next}: ${shock.title}`);
+    }
+
+    if (next === TOTAL_DAYS) {
+      setTimeout(() => setIsEndModalOpen(true), 600);
     }
   };
 
@@ -179,6 +189,10 @@ export default function BrokeButFunctional() {
       ...prev
     ]);
     notify(`Committed ₹${simAmount} expense to ledger.`);
+
+    if (currentBalance - simAmount <= 0) {
+      setTimeout(() => setIsEndModalOpen(true), 600);
+    }
   };
 
   const handleAddExpense = (e: React.FormEvent) => {
@@ -209,11 +223,16 @@ export default function BrokeButFunctional() {
     setQuickTitle("");
     setQuickAmount("");
     notify(`Recorded ₹${parsedAmt} for ${sanitizedTitle}`);
+
+    if (currentBalance - parsedAmt <= 0) {
+      setTimeout(() => setIsEndModalOpen(true), 600);
+    }
   };
 
   const resetAll = () => {
     setCurrentDay(1);
     setCrisisModeActive(false);
+    setIsEndModalOpen(false);
     setSubscriptions(DEFAULT_SUBSCRIPTIONS);
     setTransactions([
       { id: "tx-1", day: 1, title: "PG Accommodation Share", amount: -3500, category: "Essential" },
@@ -233,6 +252,17 @@ export default function BrokeButFunctional() {
             <span>{notification}</span>
           </div>
         )}
+
+        <EndSimulationModal
+          isOpen={isEndModalOpen}
+          onClose={() => setIsEndModalOpen(false)}
+          onRestart={resetAll}
+          finalBalance={currentBalance}
+          savingsGoal={savingsGoal}
+          currentDay={currentDay}
+          totalDays={TOTAL_DAYS}
+          healthScore={healthScore}
+        />
 
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/80 pb-6">
           <div>
@@ -277,7 +307,7 @@ export default function BrokeButFunctional() {
             </button>
             <button
               onClick={handleAdvanceDay}
-              disabled={currentDay >= TOTAL_DAYS || currentBalance <= 0}
+              disabled={currentBalance <= 0}
               aria-label={`Advance to next day, currently day ${currentDay} of 30`}
               className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -336,6 +366,8 @@ export default function BrokeButFunctional() {
         </section>
 
         <BurnDownChart data={forecastData} savingsGoal={savingsGoal} />
+
+        <CategoryBreakdown transactions={transactions} totalBudget={INITIAL_BUDGET} />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
