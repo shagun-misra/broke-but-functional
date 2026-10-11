@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { 
   Sparkles, 
   Calendar, 
@@ -8,86 +9,54 @@ import {
   ShieldCheck, 
   Zap, 
   PlusCircle, 
-  TrendingDown,
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle2,
-  Sliders,
-  DollarSign,
-  PiggyBank,
-  PauseCircle,
-  PlayCircle
+  PiggyBank, 
+  PauseCircle, 
+  PlayCircle, 
+  ShieldAlert, 
+  Download, 
+  CheckCircle2 
 } from "lucide-react";
+
+import { Transaction, Subscription } from "../types/finance";
 import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  ResponsiveContainer,
-  ReferenceLine
-} from "recharts";
+  INITIAL_BUDGET, 
+  TOTAL_DAYS, 
+  DEFAULT_SUBSCRIPTIONS, 
+  SURPRISE_EVENTS, 
+  calculateHealthScore, 
+  assessRiskLevel 
+} from "../lib/simulation";
+import { SurvivalBadges } from "../components/SurvivalBadges";
 
-interface Transaction {
-  id: string;
-  day: number;
-  title: string;
-  amount: number;
-  category: "Essential" | "Lifestyle" | "Emergency" | "Subscription";
-}
-
-interface Subscription {
-  id: string;
-  title: string;
-  cost: number;
-  active: boolean;
-}
-
-const INITIAL_BUDGET = 10000;
-const TOTAL_DAYS = 30;
-
-const DEFAULT_SUBSCRIPTIONS: Subscription[] = [
-  { id: "sub-1", title: "Spotify + Cloud Storage", cost: 299, active: true },
-  { id: "sub-2", title: "OTT Streaming Pass", cost: 499, active: true },
-  { id: "sub-3", title: "Campus Gym Membership", cost: 600, active: true },
-];
-
-const SURPRISE_EVENTS = [
-  { title: "Phone screen cracked! Instant repair fee", amount: -1500, category: "Emergency" as const },
-  { title: "Friend repaid old hostel split bill", amount: 650, category: "Lifestyle" as const },
-  { title: "Semester textbook resell payout", amount: 450, category: "Lifestyle" as const },
-  { title: "Impulse midnight food delivery splurge", amount: -420, category: "Lifestyle" as const },
-  { title: "Emergency medicine & consultation", amount: -750, category: "Emergency" as const },
-  { title: "Unexpected auto rickshaw surge pricing", amount: -280, category: "Essential" as const },
-];
+const BurnDownChart = dynamic(
+  () => import("../components/BurnDownChart").then((mod) => mod.BurnDownChart),
+  { ssr: false, loading: () => <div className="h-56 w-full bg-slate-900/60 rounded-xl animate-pulse" /> }
+);
 
 export default function BrokeButFunctional() {
   const [currentDay, setCurrentDay] = useState<number>(1);
   const [savingsGoal, setSavingsGoal] = useState<number>(1500);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>(DEFAULT_SUBSCRIPTIONS);
   const [notification, setNotification] = useState<string | null>(null);
+  const [crisisModeActive, setCrisisModeActive] = useState<boolean>(false);
 
   const [transactions, setTransactions] = useState<Transaction[]>([
     { id: "tx-1", day: 1, title: "PG Accommodation Share", amount: -3500, category: "Essential" },
     { id: "tx-2", day: 1, title: "Monthly Metro Travel Card", amount: -800, category: "Essential" },
-    { id: "tx-3", day: 1, title: "Initial Active Subscriptions", amount: -1398, category: "Subscription" },
+    { id: "tx-3", day: 1, title: "Recurring Active Subscriptions", amount: -1398, category: "Subscription" },
   ]);
 
-  // Simulator State
-  const [simTitle, setSimTitle] = useState<string>("Weekend Cafe & Outing");
+  const [simTitle, setSimTitle] = useState<string>("Weekend Outing Splurge");
   const [simAmount, setSimAmount] = useState<number>(850);
 
-  // Quick Direct Input State
   const [quickTitle, setQuickTitle] = useState("");
   const [quickAmount, setQuickAmount] = useState("");
   const [inputError, setInputError] = useState("");
 
-  // Subscriptions Total
   const activeSubscriptionCost = useMemo(() => {
     return subscriptions.filter(s => s.active).reduce((sum, s) => sum + s.cost, 0);
   }, [subscriptions]);
 
-  // Financial Computations
   const totalExpenses = useMemo(() => {
     return transactions.reduce((acc, t) => acc + (t.amount < 0 ? Math.abs(t.amount) : 0), 0);
   }, [transactions]);
@@ -100,28 +69,18 @@ export default function BrokeButFunctional() {
   const daysRemaining = Math.max(1, TOTAL_DAYS - currentDay + 1);
   const dailyAllowance = Math.max(0, Math.floor(currentBalance / daysRemaining));
 
-  // Simulated metrics
   const simBalance = currentBalance - (simAmount || 0);
   const simDailyAllowance = Math.max(0, Math.floor(simBalance / daysRemaining));
   const simDelta = dailyAllowance - simDailyAllowance;
 
-  // Health Score (0 - 100)
   const healthScore = useMemo(() => {
-    if (currentBalance <= 0) return 0;
-    const daysFraction = daysRemaining / TOTAL_DAYS;
-    const balanceFraction = currentBalance / INITIAL_BUDGET;
-    const ratio = balanceFraction / (daysFraction || 0.05);
-    return Math.min(100, Math.max(5, Math.round(ratio * 65)));
+    return calculateHealthScore(currentBalance, daysRemaining);
   }, [currentBalance, daysRemaining]);
 
   const riskAssessment = useMemo(() => {
-    if (currentBalance < savingsGoal) return { label: "CRITICAL RISK", color: "text-rose-400 bg-rose-500/10 border-rose-500/20" };
-    if (dailyAllowance < 140) return { label: "HIGH VULNERABILITY", color: "text-amber-400 bg-amber-500/10 border-amber-500/20" };
-    if (dailyAllowance < 220) return { label: "MODERATE BUFFER", color: "text-sky-400 bg-sky-500/10 border-sky-500/20" };
-    return { label: "STABLE RUNWAY", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" };
+    return assessRiskLevel(currentBalance, savingsGoal, dailyAllowance);
   }, [currentBalance, savingsGoal, dailyAllowance]);
 
-  // Forecast Data Curve for Chart
   const forecastData = useMemo(() => {
     const points = [];
     const stepBurn = Math.max(1, dailyAllowance);
@@ -138,10 +97,41 @@ export default function BrokeButFunctional() {
     return points;
   }, [currentDay, currentBalance, totalExpenses, dailyAllowance]);
 
-  // Actions
   const notify = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3500);
+  };
+
+  const toggleCrisisProtocol = () => {
+    if (!crisisModeActive) {
+      setSubscriptions(prev => prev.map(s => ({ ...s, active: false })));
+      setCrisisModeActive(true);
+      notify("CRISIS PROTOCOL ENGAGED: All recurring subscriptions paused to preserve runway.");
+    } else {
+      setSubscriptions(DEFAULT_SUBSCRIPTIONS);
+      setCrisisModeActive(false);
+      notify("CRISIS PROTOCOL DISENGAGED: Subscriptions restored to standard baseline.");
+    }
+  };
+
+  const exportAuditLog = () => {
+    const data = {
+      simulationDate: new Date().toISOString(),
+      currentDay,
+      balance: currentBalance,
+      healthScore,
+      dailyAllowance,
+      savingsGoal,
+      activeSubscriptions: subscriptions.filter(s => s.active),
+      transactions,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `financial-simulation-day-${currentDay}.json`;
+    a.click();
+    notify("Simulation ledger successfully exported as JSON.");
   };
 
   const handleAdvanceDay = () => {
@@ -149,7 +139,6 @@ export default function BrokeButFunctional() {
     const next = currentDay + 1;
     setCurrentDay(next);
 
-    // 40% probability of surprise financial shock
     if (Math.random() < 0.40) {
       const shock = SURPRISE_EVENTS[Math.floor(Math.random() * SURPRISE_EVENTS.length)];
       setTransactions(prev => [
@@ -170,7 +159,7 @@ export default function BrokeButFunctional() {
     setSubscriptions(prev => prev.map(sub => {
       if (sub.id === id) {
         const nextState = !sub.active;
-        notify(`${nextState ? "Resumed" : "Paused"} ${sub.title} (₹${sub.cost})`);
+        notify(`${nextState ? "Resumed" : "Paused"} ${sub.title}`);
         return { ...sub, active: nextState };
       }
       return sub;
@@ -189,7 +178,7 @@ export default function BrokeButFunctional() {
       },
       ...prev
     ]);
-    notify(`Committed ₹${simAmount} expense to balance.`);
+    notify(`Committed ₹${simAmount} expense to ledger.`);
   };
 
   const handleAddExpense = (e: React.FormEvent) => {
@@ -203,7 +192,7 @@ export default function BrokeButFunctional() {
       return;
     }
     if (isNaN(parsedAmt) || parsedAmt <= 0 || parsedAmt > 10000) {
-      setInputError("Enter a valid amount between ₹1 and ₹10,000.");
+      setInputError("Enter an amount between ₹1 and ₹10,000.");
       return;
     }
 
@@ -219,16 +208,17 @@ export default function BrokeButFunctional() {
     ]);
     setQuickTitle("");
     setQuickAmount("");
-    notify(`Logged ₹${parsedAmt} for ${sanitizedTitle}`);
+    notify(`Recorded ₹${parsedAmt} for ${sanitizedTitle}`);
   };
 
   const resetAll = () => {
     setCurrentDay(1);
+    setCrisisModeActive(false);
     setSubscriptions(DEFAULT_SUBSCRIPTIONS);
     setTransactions([
       { id: "tx-1", day: 1, title: "PG Accommodation Share", amount: -3500, category: "Essential" },
       { id: "tx-2", day: 1, title: "Monthly Metro Travel Card", amount: -800, category: "Essential" },
-      { id: "tx-3", day: 1, title: "Initial Active Subscriptions", amount: -1398, category: "Subscription" },
+      { id: "tx-3", day: 1, title: "Recurring Active Subscriptions", amount: -1398, category: "Subscription" },
     ]);
     notify("Simulation reset to Day 1.");
   };
@@ -237,7 +227,6 @@ export default function BrokeButFunctional() {
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">
       <div className="max-w-7xl mx-auto space-y-6">
 
-        {/* Global Toast */}
         {notification && (
           <div role="status" aria-live="polite" className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-slate-900 border border-emerald-500/40 text-emerald-300 px-4 py-2.5 rounded-xl shadow-2xl text-sm font-medium">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -245,7 +234,6 @@ export default function BrokeButFunctional() {
           </div>
         )}
 
-        {/* Header */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/80 pb-6">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-2">
@@ -260,11 +248,30 @@ export default function BrokeButFunctional() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={toggleCrisisProtocol}
+              aria-label="Toggle Emergency Crisis Lockdown"
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition ${
+                crisisModeActive 
+                  ? "bg-rose-500 text-white border-rose-400 animate-pulse" 
+                  : "bg-slate-900 hover:bg-rose-500/20 text-rose-300 border-rose-500/30"
+              }`}
+            >
+              <ShieldAlert className="w-4 h-4" aria-hidden="true" />
+              {crisisModeActive ? "Crisis Lockdown: ON" : "Crisis Protocol"}
+            </button>
+            <button
+              onClick={exportAuditLog}
+              aria-label="Export Financial Audit Log as JSON"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-300 hover:text-white transition"
+            >
+              <Download className="w-4 h-4" aria-hidden="true" /> Export Log
+            </button>
             <button
               onClick={resetAll}
               aria-label="Reset simulation"
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-300 hover:text-white transition"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-300 hover:text-white transition"
             >
               <RefreshCcw className="w-4 h-4" aria-hidden="true" /> Reset
             </button>
@@ -272,23 +279,29 @@ export default function BrokeButFunctional() {
               onClick={handleAdvanceDay}
               disabled={currentDay >= TOTAL_DAYS || currentBalance <= 0}
               aria-label={`Advance to next day, currently day ${currentDay} of 30`}
-              className="flex items-center gap-2 px-5 py-2 text-sm font-bold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Calendar className="w-4 h-4" aria-hidden="true" /> Advance Day ({currentDay}/{TOTAL_DAYS})
             </button>
           </div>
         </header>
 
-        {/* Metrics Cards */}
+        <SurvivalBadges 
+          currentDay={currentDay} 
+          healthScore={healthScore} 
+          balance={currentBalance} 
+          emergencyLocked={crisisModeActive} 
+        />
+
         <section aria-label="Key Financial Metrics" className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
             <span className="text-xs font-medium text-slate-400">Remaining Balance</span>
-            <div className={`text-2xl sm:text-3xl font-extrabold mt-1 tracking-tight ${currentBalance < 1500 ? "text-rose-400" : "text-emerald-400"}`}>
+            <div className={`text-2xl sm:text-3xl font-extrabold mt-1 tracking-tight ${currentBalance < savingsGoal ? "text-rose-400" : "text-emerald-400"}`}>
               ₹{currentBalance.toLocaleString()}
             </div>
             <div className="w-full bg-slate-800 h-2 rounded-full mt-3 overflow-hidden" role="progressbar" aria-valuenow={currentBalance} aria-valuemin={0} aria-valuemax={INITIAL_BUDGET}>
               <div 
-                className={`h-full transition-all duration-500 ${currentBalance < 1500 ? "bg-rose-500" : "bg-emerald-500"}`} 
+                className={`h-full transition-all duration-500 ${currentBalance < savingsGoal ? "bg-rose-500" : "bg-emerald-500"}`} 
                 style={{ width: `${Math.max(0, Math.min(100, (currentBalance / INITIAL_BUDGET) * 100))}%` }}
               />
             </div>
@@ -308,7 +321,7 @@ export default function BrokeButFunctional() {
               {healthScore} <span className="text-sm font-normal text-slate-500">/ 100</span>
               <ShieldCheck className="w-5 h-5 text-amber-400" aria-hidden="true" />
             </div>
-            <p className="text-xs text-slate-400 mt-2">Benchmark: 65+ considered safe</p>
+            <p className="text-xs text-slate-400 mt-2">Target benchmark: &gt;65</p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800">
@@ -318,59 +331,16 @@ export default function BrokeButFunctional() {
                 {riskAssessment.label}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-2">Dynamic risk classification</p>
+            <p className="text-xs text-slate-400 mt-2 truncate" title={riskAssessment.description}>{riskAssessment.description}</p>
           </div>
         </section>
 
-        {/* 30-Day Trajectory Forecast Chart */}
-        <section aria-label="30-Day Financial Trajectory Forecast" className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <TrendingDown className="w-4 h-4 text-emerald-400" aria-hidden="true" />
-                30-Day Burn-Down & Survival Trajectory
-              </h2>
-              <p className="text-xs text-slate-400">Real-time projection against your ₹{savingsGoal} end-of-month target reserve.</p>
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5 text-slate-300">
-                <div className="w-3 h-3 bg-emerald-500 rounded-sm" /> Projected Runway
-              </div>
-              <div className="flex items-center gap-1.5 text-rose-400">
-                <div className="w-3 h-0.5 bg-rose-500" /> Target Buffer (₹{savingsGoal})
-              </div>
-            </div>
-          </div>
+        <BurnDownChart data={forecastData} savingsGoal={savingsGoal} />
 
-          <div className="h-56 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={forecastData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="balanceGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
-                <YAxis stroke="#64748b" fontSize={11} tickLine={false} domain={[0, 10000]} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155", borderRadius: "8px", fontSize: "12px", color: "#f8fafc" }} 
-                  formatter={(val: any) => [`₹${Math.round(Number(val))}`, "Balance"]}
-                />
-                <ReferenceLine y={savingsGoal} stroke="#f43f5e" strokeDasharray="3 3" />
-                <Area type="monotone" dataKey="balance" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#balanceGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-
-        {/* Two-Column Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-          {/* Left Column */}
           <div className="lg:col-span-7 space-y-6">
 
-            {/* WHAT-IF DECISION SIMULATOR */}
             <section aria-label="What-If Decision Simulator" className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -378,24 +348,24 @@ export default function BrokeButFunctional() {
                     <Zap className="w-5 h-5 text-amber-400" aria-hidden="true" />
                     "What-If" Decision Simulator
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Test any expenditure impact prior to debiting funds.</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Test expenditure impact before debiting actual funds.</p>
                 </div>
                 <span className="text-[11px] font-bold px-2.5 py-1 bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded-md">
-                  Sandbox
+                  Pre-Commit Sandbox
                 </span>
               </div>
 
               <div className="space-y-4 bg-slate-950/80 p-4 rounded-xl border border-slate-800">
                 <div>
                   <label htmlFor="sim-title" className="text-xs font-semibold text-slate-300 block mb-1">
-                    Planned Expense Scenario
+                    Planned Scenario Title
                   </label>
                   <input
                     id="sim-title"
                     type="text"
                     value={simTitle}
                     onChange={(e) => setSimTitle(e.target.value)}
-                    placeholder="e.g., Concert ticket, weekend road trip"
+                    placeholder="e.g., Concert pass, cafe weekend hangout"
                     className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -403,7 +373,7 @@ export default function BrokeButFunctional() {
                 <div>
                   <div className="flex justify-between items-center text-xs mb-1.5">
                     <label htmlFor="sim-amount" className="font-semibold text-slate-300">
-                      Simulated Expense Amount
+                      Simulated Expense Cost
                     </label>
                     <span className="font-extrabold text-sm text-emerald-400">₹{simAmount}</span>
                   </div>
@@ -427,7 +397,7 @@ export default function BrokeButFunctional() {
 
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                    <span className="text-[11px] text-slate-400 block">Projected Balance</span>
+                    <span className="text-[11px] text-slate-400 block">Simulated Balance</span>
                     <p className={`text-base font-bold mt-0.5 ${simBalance < savingsGoal ? "text-rose-400" : "text-slate-200"}`}>
                       ₹{simBalance.toLocaleString()}
                     </p>
@@ -447,19 +417,18 @@ export default function BrokeButFunctional() {
                   aria-label="Commit simulated expense"
                   className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Commit Scenario To Live Ledger
+                  Commit This Decision to Real Budget
                 </button>
               </div>
 
-              {/* Direct Expense Entry Form */}
               <form onSubmit={handleAddExpense} className="pt-2 border-t border-slate-800/80 space-y-2">
-                <span className="text-xs font-semibold text-slate-300 block">Direct Quick Expense</span>
+                <span className="text-xs font-semibold text-slate-300 block">Record Quick Direct Expense</span>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={quickTitle}
                     onChange={(e) => setQuickTitle(e.target.value)}
-                    placeholder="Description (e.g., Stationery, Chai)"
+                    placeholder="Expense title (e.g., Momos, printout)"
                     aria-label="Direct expense description"
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
@@ -483,15 +452,14 @@ export default function BrokeButFunctional() {
               </form>
             </section>
 
-            {/* Recurring Commitments & Subscriptions Manager */}
             <section aria-label="Subscription Commitment Manager" className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-base font-bold text-white">Recurring Commitments</h2>
-                  <p className="text-xs text-slate-400">Pause active subscriptions to immediately increase your daily burn runway.</p>
+                  <h2 className="text-base font-bold text-white">Subscription Commitments</h2>
+                  <p className="text-xs text-slate-400">Pause active services to instantly increase your daily survival allowance.</p>
                 </div>
                 <span className="text-xs font-semibold text-slate-300 bg-slate-800 px-2.5 py-1 rounded-md">
-                  Active: ₹{activeSubscriptionCost}/mo
+                  Active Total: ₹{activeSubscriptionCost}/mo
                 </span>
               </div>
 
@@ -529,10 +497,8 @@ export default function BrokeButFunctional() {
 
           </div>
 
-          {/* Right Column */}
           <div className="lg:col-span-5 space-y-6">
 
-            {/* Savings Goal Reserve */}
             <section aria-label="End of Month Savings Goal" className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
@@ -552,18 +518,17 @@ export default function BrokeButFunctional() {
                 className="w-full accent-emerald-500 cursor-pointer"
               />
               <div className="flex justify-between text-[11px] text-slate-400">
-                <span>Safe Buffer: ₹{savingsGoal}</span>
+                <span>Safe Threshold: ₹{savingsGoal}</span>
                 <span className={currentBalance >= savingsGoal ? "text-emerald-400" : "text-rose-400"}>
                   {currentBalance >= savingsGoal ? "Goal Protected" : "Buffer Breached"}
                 </span>
               </div>
             </section>
 
-            {/* Transaction Ledger */}
             <section aria-label="Interconnected Ledger" className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-base font-bold text-white">Activity Ledger</h2>
+                  <h2 className="text-base font-bold text-white">Interconnected Ledger</h2>
                   <span className="text-xs text-slate-500">{transactions.length} records</span>
                 </div>
 
@@ -582,15 +547,14 @@ export default function BrokeButFunctional() {
                 </div>
               </div>
 
-              {/* End of Month Outlook */}
               <div className="mt-5 p-3.5 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">End-of-Month Outlook</span>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Current Forecast</span>
                 <p className="text-xs text-slate-300 mt-1 leading-relaxed">
                   {currentBalance <= 0 
                     ? "Insolvency reached prior to Day 30. Survival status: Failed."
                     : currentDay === TOTAL_DAYS
-                    ? "You successfully survived the entire 30 days within budget."
-                    : `Current burn rate allows ~₹${dailyAllowance}/day across ${daysRemaining} days remaining.`}
+                    ? "Congratulations! You completed the 30-day simulation within budget."
+                    : `On track to finish Day 30 with ~₹${Math.max(0, currentBalance - (dailyAllowance * (daysRemaining - 1)))} remaining buffer.`}
                 </p>
               </div>
             </section>
